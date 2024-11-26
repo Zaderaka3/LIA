@@ -6,15 +6,14 @@
   backward when necessary. The robot uses a state machine to determine its behavior
   based on the distance measured by the ultrasonic sensor.
 */
-
 #include <Servo.h> // Include Servo library
-
 // Definitions
 Servo myServo;           // Create Servo object
 #define trigPin 13       // Ultrasonic sensor trigger pin
 #define echoPin 12       // Ultrasonic sensor echo pin
 float duration, distance; // Variables for distance measurement
 int state = 0;           // Initial state of the robot
+int speed = 70;
 
 // Setup function
 void setup() {
@@ -52,11 +51,11 @@ void loop() {
   switch (state) {
     case 0: // Start and initialize
       myServo.write(90);            // Center the servo
-      delay(1000);                  // Wait for servo to move
+      delay(100);                   // Wait for servo to move
       state = 1;                    // Move to state 1
       break;
     case 1: // Check distance
-      if (distance > 0 && distance < 20) { // Obstacle detected
+      if (distance > 0 && distance < 30) { // Obstacle detected
         Stop();                    // Stop motors
         myServo.write(90);         // Center the servo
         delay(100);                // Small delay
@@ -70,7 +69,7 @@ void loop() {
       myServo.write(135);          // Turn servo to the left
       delay(100);                  // Wait for servo to move
       distance = getDistance();    // Measure distance
-      if (distance > 0 && distance < 20) { // Obstacle detected
+      if (distance > 0 && distance < 30) { // Obstacle detected
         Stop();                    // Stop motors
         state = 4;                 // Move to state 4
       } else {                     // No obstacle
@@ -87,7 +86,7 @@ void loop() {
       myServo.write(45);           // Turn servo to the right
       delay(100);                  // Wait for servo to move
       distance = getDistance();    // Measure distance
-      if (distance > 0 && distance < 20) { // Obstacle detected
+      if (distance > 0 && distance < 30) { // Obstacle detected
         Stop();                    // Stop motors
         state = 5;                 // Move to state 5
       } else {                     // No obstacle
@@ -96,7 +95,7 @@ void loop() {
       }
       break;
     case 5: // Obstacle detected; move backward
-      Backward();                  // Move backward
+      UTurn();                  // Move backward
       state = 0;                   // Reset to state 0
       break;
     default: // Default state
@@ -110,17 +109,9 @@ void loop() {
 // Motor Control Functions
 void Forward() {
   digitalWrite(8, HIGH); // Right motor forward
-  analogWrite(5, 100);   // Set PWM speed for right motor
+  analogWrite(5, speed);   // Set PWM speed for right motor
   digitalWrite(7, HIGH); // Left motor forward
-  analogWrite(6, 100);   // Set PWM speed for left motor
-  digitalWrite(3, HIGH); // Enable motors
-}
-
-void Backward() {
-  digitalWrite(7, LOW); // Left motor backward
-  digitalWrite(8, LOW); // Right motor backward
-  analogWrite(5, 100);  // Set PWM speed for right motor
-  analogWrite(6, 100);  // Set PWM speed for left motor
+  analogWrite(6, speed);   // Set PWM speed for left motor
   digitalWrite(3, HIGH); // Enable motors
 }
 
@@ -132,7 +123,7 @@ void Stop() {
 
 void Left() {
   digitalWrite(8, HIGH); // Right motor forward
-  analogWrite(5, 100);   // Set PWM speed for right motor
+  analogWrite(5, speed);   // Set PWM speed for right motor
   digitalWrite(7, HIGH); // Left motor stop
   analogWrite(6, 0);     // Stop left motor
   digitalWrite(3, HIGH); // Enable motors
@@ -142,6 +133,14 @@ void Right() {
   digitalWrite(8, HIGH); // Right motor stop
   analogWrite(5, 0);     // Stop right motor
   digitalWrite(7, HIGH); // Left motor forward
-  analogWrite(6, 100);   // Set PWM speed for left motor
+  analogWrite(6, speed);   // Set PWM speed for left motor
   digitalWrite(3, HIGH); // Enable motors
+}
+
+void UTurn() {
+  digitalWrite(8, HIGH);  // Right motor forward
+  analogWrite(5, 100);    // Set PWM speed for right motor
+  digitalWrite(7, LOW);   // Left motor backward
+  analogWrite(6, 100);    // Set PWM speed for left motor
+  digitalWrite(3, HIGH);
 }

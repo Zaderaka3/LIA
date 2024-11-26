@@ -1,0 +1,147 @@
+/*
+  Obstacle Avoidance Robot with Ultrasonic Sensor and Servo
+  ---------------------------------------------------------
+  This code controls a robot with ultrasonic sensors, motors, and a servo motor
+  to detect obstacles and avoid them by making decisions to stop, turn, or move
+  backward when necessary. The robot uses a state machine to determine its behavior
+  based on the distance measured by the ultrasonic sensor.
+*/
+
+#include <Servo.h> // Include Servo library
+
+// Definitions
+Servo myServo;           // Create Servo object
+#define trigPin 13       // Ultrasonic sensor trigger pin
+#define echoPin 12       // Ultrasonic sensor echo pin
+float duration, distance; // Variables for distance measurement
+int state = 0;           // Initial state of the robot
+
+// Setup function
+void setup() {
+  Serial.begin(9600);         // Initialize Serial communication
+  myServo.attach(10);         // Attach servo to pin 10
+  pinMode(trigPin, OUTPUT);   // Set ultrasonic trigger pin as output
+  pinMode(echoPin, INPUT);    // Set ultrasonic echo pin as input
+  pinMode(7, OUTPUT);         // Set left motor direction pin
+  pinMode(8, OUTPUT);         // Set right motor direction pin
+  pinMode(3, OUTPUT);         // Set motor enable pin
+  pinMode(5, OUTPUT);         // PWM control for right motor
+  pinMode(6, OUTPUT);         // PWM control for left motor
+}
+
+// Function to get distance from ultrasonic sensor
+float getDistance() {
+  digitalWrite(trigPin, LOW);       // Ensure trigger pin is low
+  delayMicroseconds(2);             // Wait for 2 microseconds
+  digitalWrite(trigPin, HIGH);      // Send a 10-microsecond pulse
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);       // Stop the pulse
+  duration = pulseIn(echoPin, HIGH, 30000); // Measure echo duration (timeout 30ms)
+  if (duration == 0) return -1;     // Return -1 if no echo received
+  return (duration / 2) * 0.0343;   // Convert duration to distance (cm)
+}
+
+// Main loop
+void loop() {
+  distance = getDistance();         // Measure distance
+  Serial.print("Distance: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+
+  // State machine to control robot behavior
+  switch (state) {
+    case 0: // Start and initialize
+      myServo.write(90);            // Center the servo
+      delay(1000);                  // Wait for servo to move
+      state = 1;                    // Move to state 1
+      break;
+    case 1: // Check distance
+      if (distance > 0 && distance < 20) { // Obstacle detected
+        Stop();                    // Stop motors
+        myServo.write(90);         // Center the servo
+        delay(100);                // Small delay
+        state = 2;                 // Move to state 2
+      } else {                     // No obstacle
+        Forward();                 // Move forward
+        state = 3;                 // Move to state 3
+      }
+      break;
+    case 2: // Turn servo to 135 degrees and check again
+      myServo.write(135);          // Turn servo to the left
+      delay(100);                  // Wait for servo to move
+      distance = getDistance();    // Measure distance
+      if (distance > 0 && distance < 20) { // Obstacle detected
+        Stop();                    // Stop motors
+        state = 4;                 // Move to state 4
+      } else {                     // No obstacle
+        Left();                    // Turn left
+        state = 3;                 // Move to state 3
+      }
+      break;
+    case 3: // Move forward and reset to step 1
+      myServo.write(90);           // Center the servo
+      delay(100);                  // Small delay
+      state = 1;                   // Reset to state 1
+      break;
+    case 4: // Obstacle detected; turn servo to 45 degrees and check again
+      myServo.write(45);           // Turn servo to the right
+      delay(100);                  // Wait for servo to move
+      distance = getDistance();    // Measure distance
+      if (distance > 0 && distance < 20) { // Obstacle detected
+        Stop();                    // Stop motors
+        state = 5;                 // Move to state 5
+      } else {                     // No obstacle
+        Right();                   // Turn right
+        state = 3;                 // Move to state 3
+      }
+      break;
+    case 5: // Obstacle detected; move backward
+      Backward();                  // Move backward
+      state = 0;                   // Reset to state 0
+      break;
+    default: // Default state
+      Stop();                      // Stop motors
+      state = 0;                   // Reset to state 0
+      break;
+  }
+  delay(500); // Small delay between states
+}
+
+// Motor Control Functions
+void Forward() {
+  digitalWrite(8, HIGH); // Right motor forward
+  analogWrite(5, 100);   // Set PWM speed for right motor
+  digitalWrite(7, HIGH); // Left motor forward
+  analogWrite(6, 100);   // Set PWM speed for left motor
+  digitalWrite(3, HIGH); // Enable motors
+}
+
+void Backward() {
+  digitalWrite(7, LOW); // Left motor backward
+  digitalWrite(8, LOW); // Right motor backward
+  analogWrite(5, 100);  // Set PWM speed for right motor
+  analogWrite(6, 100);  // Set PWM speed for left motor
+  digitalWrite(3, HIGH); // Enable motors
+}
+
+void Stop() {
+  analogWrite(5, 0);    // Stop right motor
+  analogWrite(6, 0);    // Stop left motor
+  digitalWrite(3, LOW); // Disable motors
+}
+
+void Left() {
+  digitalWrite(8, HIGH); // Right motor forward
+  analogWrite(5, 100);   // Set PWM speed for right motor
+  digitalWrite(7, HIGH); // Left motor stop
+  analogWrite(6, 0);     // Stop left motor
+  digitalWrite(3, HIGH); // Enable motors
+}
+
+void Right() { 
+  digitalWrite(8, HIGH); // Right motor stop
+  analogWrite(5, 0);     // Stop right motor
+  digitalWrite(7, HIGH); // Left motor forward
+  analogWrite(6, 100);   // Set PWM speed for left motor
+  digitalWrite(3, HIGH); // Enable motors
+}

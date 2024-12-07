@@ -1,0 +1,358 @@
+#include <IRremote.h>
+#include <Servo.h>
+Servo myServo;
+#define trigPin 13
+#define echoPin 12
+float duration, distance;
+int state = 0;
+const int IR_RECEIVE_PIN = 9;
+const unsigned long FORWARD = 0xB946FF00;
+const unsigned long BACKWARD = 0xEA15FF00;
+const unsigned long RIGHT = 0xBC43FF00;
+const unsigned long LEFT = 0xBB44FF00;
+const unsigned long STOP = 0xBF40FF00;
+const unsigned long SPEED_UP = 0xF609FF00;
+const unsigned long SPEED_DOWN = 0xF807FF00;
+const unsigned long SCAN_OBJECT = 0xBD42FF00;
+const unsigned long TRACK_LINE = 0xB847FF00;
+const unsigned long FRONTLEFT = 0xF30CFF00;
+const unsigned long FRONTRIGHT = 0xA15EFF00;
+int speed = 60;
+const int maxSpeed = 255;
+const int minSpeed = 0;
+unsigned long lastIRReceiveTime = 0;
+const unsigned long debounceDelay = 100;
+bool scanningActive = false;
+const unsigned long scanInterval = 500;
+unsigned long lastServoMoveTime = 0;
+const unsigned long servoMoveDelay = 100;
+unsigned long searchStartTime = 0;
+bool searching = false;
+bool trackingActive = false;
+int speed1 = 50;
+
+void setup() {
+  Serial.begin(9600); 
+  IrReceiver.begin(IR_RECEIVE_PIN, ENABLE_LED_FEEDBACK);
+  Serial.println("IR Receiver Initialized. Waiting for input...");
+  myServo.attach(10);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(7, OUTPUT);    // Left motor direction
+  pinMode(8, OUTPUT);    // Right motor direction
+  pinMode(3, OUTPUT);    // Motor enable pin
+  pinMode(5, OUTPUT);    // PWM control for right motor
+  pinMode(6, OUTPUT);    // PWM control for left motor
+}
+
+void loop() {
+  if (IrReceiver.decode()) {
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastIRReceiveTime > debounceDelay) {
+      handleIRCommand(IrReceiver.decodedIRData.decodedRawData);
+      lastIRReceiveTime = currentMillis;
+    }
+    IrReceiver.resume();
+  }
+  if (scanningActive) {
+    ScanObject();
+  }
+  if (trackingActive) {
+    TrackingLine();
+  }
+}
+
+void handleIRCommand(unsigned long command) {
+  Serial.print("Received Command: 0x");
+  Serial.println(command, HEX);
+  switch(command) {
+    case FORWARD:
+      Forward();
+      break;
+    case BACKWARD:
+      Backward();
+      break;
+    case RIGHT:
+      Right();
+      break;
+    case LEFT:
+      Left();
+      break;
+    case STOP:
+      Stop();
+      break;
+    case SPEED_UP:
+      increaseSpeed();
+      break;
+    case SPEED_DOWN:
+      decreaseSpeed();
+      break;
+    case SCAN_OBJECT:
+      toggleScanning();
+      break;
+    case TRACK_LINE:
+      toggleTracking();
+      break;
+    case FRONTLEFT:
+      LeftForward();
+      break;
+    case FRONTRIGHT:
+      RightForward();
+      break;
+    default:
+      Stop();
+      break;
+  }
+}
+
+void LeftForward() {
+  digitalWrite(3, HIGH); 
+  digitalWrite(8, HIGH); 
+  analogWrite(5, speed); 
+  digitalWrite(7, HIGH); 
+  analogWrite(6, speed/2);
+}
+
+void RightForward() {
+  digitalWrite(3, HIGH); 
+  digitalWrite(8, HIGH); 
+  analogWrite(5, speed/2); 
+  digitalWrite(7, HIGH); 
+  analogWrite(6, speed);
+}
+
+void toggleTracking() {
+  trackingActive = !trackingActive;
+  if (trackingActive) {
+    Serial.println("Tracking activated.");
+  } else {
+    Serial.println("Tracking stopped.");
+    Stop(); // Stop motors when scanning stops
+  }
+}
+
+void toggleScanning() {
+  scanningActive = !scanningActive; // Toggle the scanning state
+  if (scanningActive) {
+    Serial.println("Scanning activated.");
+  } else {
+    Serial.println("Scanning stopped.");
+    Stop(); // Stop motors when scanning stops
+  }
+}
+
+float getDistance() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  duration = pulseIn(echoPin, HIGH, 30000);
+  if (duration == 0) return -1;
+  return (duration / 2) * 0.0343;
+}
+
+void TrackingLine() {
+  int leftValue = analogRead(A2);
+  int middleValue = analogRead(A1);
+  int rightValue = analogRead(A0);
+  Serial.print("Left =  ");
+  Serial.print(leftValue);
+  Serial.print("\t Middle =  ");
+  Serial.print(middleValue);
+  Serial.print("\t Right =  ");
+  Serial.println(rightValue);
+  // Decision-making based on sensor values
+  if (leftValue >= 1000 && middleValue >= 1000 && rightValue >= 1000) {
+    Stop(); // All sensors detect a line; stop the robot
+  } else if (middleValue >= 750 && middleValue <= 790) {
+    Forward(); // Middle sensor detects line; move forward
+  } else if (rightValue >= 800 && rightValue <= 860 && middleValue <= 750) {
+    Right(); // Right sensor detects line; turn right
+  } else if (leftValue >= 800 && leftValue <= 860 && middleValue <= 750) {
+    Left(); // Left sensor detects line; turn left
+  } else if (leftValue <= 60 && middleValue <= 60 && rightValue <= 60) {
+    enterSearchMode(); // No line detected; enter search mode
+  } else {
+    if (searching) {
+      exitSearchMode(); // Exit search mode if conditions are met
+    }
+  }
+}
+
+void enterSearchMode() {
+  if (!searching) {
+    searching = true;           // Set search mode flag
+    searchStartTime = millis(); // Record start time of search mode
+                // Increase speed for searching
+  }
+  unsigned long elapsedTime = millis() - searchStartTime;
+  // Define search pattern based on elapsed time
+  if (elapsedTime <= 900) {
+    RightT(); // Turn right for 900 ms
+  } else if (elapsedTime <= 2100) {
+    LeftT(); // Turn left for 1200 ms
+  } else if (elapsedTime <= 3000) {
+    RightT(); // Turn right again for 900 ms
+  } else {
+    Stop(); // Stop after completing the search pattern
+    searchStartTime = millis(); // Reset search time
+  }
+}
+
+void exitSearchMode() {
+  searching = false;        // Clear search mode flag
+  searchStartTime = 0;      // Reset search time
+  speed = 50;               // Reset speed to default
+}
+
+void ScanObject() {
+  distance = getDistance();         // Measure distance
+  Serial.print("Distance: ");
+  Serial.print(distance);
+  Serial.println(" cm");
+  delay(50);
+
+  // State machine to control robot behavior
+  switch (state) {
+    case 0: // Start and initialize
+      myServo.write(90);            // Center the servo
+      delay(100);                   // Wait for servo to move
+      state = 1;                    // Move to state 1
+      break;
+    case 1:
+          if (distance == -1) {
+            Stop();
+            Serial.println("Error: No echo detected.");
+            state = 0;
+          } else if (distance > 0 && distance < 30) {
+            Stop();
+            myServo.write(90);         // Center the servo
+            delay(100);
+            state = 2;
+          } else {
+            Forward();
+            state = 3;
+          }
+      break;
+    case 2: // Turn servo to 165 degrees and check again
+      myServo.write(0);           // Turn servo to the right
+      delay(100);                  // Wait for servo to move
+      distance = getDistance();    // Measure distance
+      if (distance > 0 && distance < 30) { // Obstacle detected
+        Stop();                    // Stop motors
+        state = 4;                 // Move to state 5
+      } else {                     // No obstacle
+        Right();                   // Turn right
+        state = 3;                 // Move to state 3
+      }
+      break;
+    case 3: // Move forward and reset to step 1
+      myServo.write(90);           // Center the servo
+      delay(100);                  // Small delay
+      state = 1;                   // Reset to state 1
+      break;
+    case 4: // Obstacle detected; turn servo to 15 degrees and check again
+      myServo.write(180);          // Turn servo to the left
+      delay(100);                  // Wait for servo to move
+      distance = getDistance();    // Measure distance
+      if (distance > 0 && distance < 30) { // Obstacle detected
+        Stop();                    // Stop motors
+        state = 5;                 // Move to state 4
+      } else {                     // No obstacle
+        Left();                    // Turn left
+        state = 3;                 // Move to state 3
+      }
+      break;
+    case 5: // Obstacle detected; move backward
+      UTurn();                  // Move backward
+      state = 0;                   // Reset to state 0
+      break;
+    default: // Default state
+      Stop();                      // Stop motors
+      state = 0;                   // Reset to state 0
+      break;
+  }
+  delay(500); // Small delay between states
+}
+
+void increaseSpeed() {
+  speed += 20;
+  if (speed > maxSpeed) speed = maxSpeed;
+  Serial.print("Speed increased to: ");
+  Serial.println(speed);
+}
+
+void decreaseSpeed() {
+  speed -= 20;
+  if (speed < minSpeed) speed = minSpeed;
+  Serial.print("Speed decreased to: ");
+  Serial.println(speed);
+}
+
+void Forward() {
+  digitalWrite(8, HIGH);
+  analogWrite(5, speed);
+  digitalWrite(7, HIGH);
+  analogWrite(6, speed);
+  digitalWrite(3, HIGH);
+}
+
+void Backward() {
+  digitalWrite(7, LOW);
+  digitalWrite(8, LOW);
+  analogWrite(5, speed);
+  analogWrite(6, speed);
+  digitalWrite(3, HIGH);
+}
+
+void Stop() {
+  analogWrite(5, 0);
+  analogWrite(6, 0);
+  digitalWrite(3, LOW); 
+}
+
+void Left() {
+  digitalWrite(8, HIGH); // Right motor forward
+  analogWrite(5, speed);   // Set PWM speed for right motor
+  digitalWrite(7, HIGH); // Left motor stop
+  analogWrite(6, 0);     // Stop left motor
+  digitalWrite(3, HIGH); // Enable motors
+}
+
+void Right() { 
+  digitalWrite(8, HIGH); // Right motor stop
+  analogWrite(5, 0);     // Stop right motor
+  digitalWrite(7, HIGH); // Left motor forward
+  analogWrite(6, speed);   // Set PWM speed for left motor
+  digitalWrite(3, HIGH); // Enable motors
+}
+
+void UTurn() {
+  digitalWrite(8, LOW);  // Right motor forward
+  analogWrite(5, speed);    // Set PWM speed for right motor
+  digitalWrite(7, LOW);   // Left motor backward
+  analogWrite(6, speed);    // Set PWM speed for left motor
+  digitalWrite(3, HIGH);
+  delay(1000);
+  digitalWrite(8, HIGH);  // Right motor forward
+  analogWrite(5, 90);    // Set PWM speed for right motor
+  digitalWrite(7, LOW);   // Left motor backward
+  analogWrite(6, 90); 
+}
+
+void LeftT() {
+  digitalWrite(8, LOW); // Right motor forward
+  analogWrite(5, speed1);   // Set PWM speed for right motor
+  digitalWrite(7, HIGH); // Left motor stop
+  analogWrite(6, speed1);     // Stop left motor
+  digitalWrite(3, HIGH); // Enable motors
+}
+
+void RightT() { 
+  digitalWrite(8, HIGH); // Right motor stop
+  analogWrite(5, speed1);     // Stop right motor
+  digitalWrite(7, LOW); // Left motor forward
+  analogWrite(6, speed1);   // Set PWM speed for left motor
+  digitalWrite(3, HIGH); // Enable motors
+}
